@@ -1,37 +1,35 @@
 #include <stdlib.h>
 
 #include <stdio.h>
-#include <errno.h>
+#include <errno.h>  
 
 #include <string.h>
 //#include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
 
-int main(int argc, char ** argv){
+char* cwd = NULL;
 
-    char virt_cwd[1024];
-    char *virt_cwd_ptr = getcwd(virt_cwd, sizeof(virt_cwd));
-    if (virt_cwd_ptr != NULL) {
-        printf("Current directory: %s\n", virt_cwd);
-    } else {
-        perror("getcwd() error");
-        exit(EXIT_FAILURE);
-    }
-
+void showDir(char* pathname){
     struct dirent **namelist;
-    int count;
-    count = scandir(".", &namelist, NULL, alphasort);
+    int count = scandir((const char*)(pathname), &namelist, NULL, alphasort);
     if (count < 0) {
-        perror("scandir");
+        perror("scandir error");
         exit(EXIT_FAILURE);
     }
-
-    printf("Total files: %d\n", count);
+    //printf("Total files: %d\n", count);
 
     for (int i = 0; i < count; i++) {
         if (namelist[i]->d_type == DT_DIR){
             printf("%s/\n", namelist[i]->d_name);
+            if (i == 2){
+                strcat(cwd, "/");
+                strcat(cwd, namelist[i]->d_name);
+                printf("====== IN DIR: %s\n", cwd);
+                int cwd_len = strlen(cwd);
+                int name_len = strlen(namelist[i]->d_name);
+                cwd[cwd_len-1-name_len] = '\0';
+            }
         }else{
             printf("%s\n", namelist[i]->d_name);
         }
@@ -40,10 +38,31 @@ int main(int argc, char ** argv){
     }
 
     free(namelist);
+}
+
+int main(int argc, char ** argv){
+
+    cwd = calloc(PATH_MAX, 1);
+    char _cwd[PATH_MAX];
+    char* _cwd_ptr = getcwd(_cwd, sizeof(_cwd));
+    if (_cwd_ptr != NULL) {
+        //printf("getcwd directory: %s\n", _cwd);
+    } else {
+        perror("getcwd() error");
+        exit(EXIT_FAILURE);
+    }
+    strcpy(cwd, _cwd);
+    printf("====== PRE DIR: %s\n", cwd);
+
+    showDir(cwd);
+    printf("====== AFTER DIR: %s\n", cwd);
 
 
+    free(cwd);
     return 0;
 }
+
+
 
 
 /*
