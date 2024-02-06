@@ -1,10 +1,7 @@
 #include <stdlib.h>
-
 #include <stdio.h>
 #include <errno.h>  
-
 #include <string.h>
-//#include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
 
@@ -21,283 +18,154 @@ void sig_winch(int signo)
     resizeterm(size.ws_row, size.ws_col);
 }
 
-char* cwd = NULL;
+void writeLine(int line, struct dirent** namelist, WINDOW* window);
+void selectLine(int line, struct dirent** namelist, WINDOW* window);
+void deSelectLine(int line, struct dirent** namelist, WINDOW* window);
+int setDirInfo(char* pathname, struct dirent*** namelist, WINDOW* window);
 
-void showDir(char* pathname){
-    struct dirent **namelist;
-    int count = scandir((const char*)(pathname), &namelist, NULL, alphasort);
-    if (count < 0) {
-        perror("scandir error");
-        exit(EXIT_FAILURE);
-    }
-    //printf("Total files: %d\n", count);
-
-    for (int i = 0; i < count; i++) {
-        if (namelist[i]->d_type == DT_DIR){
-            printf("%s/\n", namelist[i]->d_name);
-            if (i == 2){
-                strcat(cwd, "/");
-                strcat(cwd, namelist[i]->d_name);
-                printf("====== IN DIR: %s\n", cwd);
-                int cwd_len = strlen(cwd);
-                int name_len = strlen(namelist[i]->d_name);
-                cwd[cwd_len-1-name_len] = '\0';
-            }
-        }else{
-            printf("%s\n", namelist[i]->d_name);
-        }
-
-        free(namelist[i]);
-    }
-
-    free(namelist);
-}
-
-int setDir(char* pathname, WINDOW* window){
-    struct dirent **namelist;
-    int count = scandir((const char*)(pathname), &namelist, NULL, alphasort);
-    if (count < 0) {
-        perror("scandir error");
-        exit(EXIT_FAILURE);
-    }
-    //printf("Total files: %d\n", count);
-
-    for (int i = 0; i < count; i++) {
-        if (namelist[i]->d_type == DT_DIR){
-            printf("%s/\n", namelist[i]->d_name);
-            if (i == 2){
-                strcat(cwd, "/");
-                strcat(cwd, namelist[i]->d_name);
-                printf("====== IN DIR: %s\n", cwd);
-                int cwd_len = strlen(cwd);
-                int name_len = strlen(namelist[i]->d_name);
-                cwd[cwd_len-1-name_len] = '\0';
-            }
-        }else{
-            printf("%s\n", namelist[i]->d_name);
-        }
-
-        free(namelist[i]);
-    }
-
-    free(namelist);
-}
+const int wnd_h = 40;
+const int wnd_w = 120;
 
 int main(int argc, char ** argv){
 
-    cwd = calloc(PATH_MAX, 1);
-    char _cwd[PATH_MAX];
-    char* _cwd_ptr = getcwd(_cwd, sizeof(_cwd));
-    if (_cwd_ptr != NULL) {
-        //printf("getcwd directory: %s\n", _cwd);
+    char cwd[PATH_MAX];
+    char* cwd_ptr = getcwd(cwd, sizeof(cwd));
+    if (cwd_ptr != NULL) {
+        //printf("getcwd directory: %s\n", cwd_ptr);
     } else {
         perror("getcwd() error");
         exit(EXIT_FAILURE);
     }
-    strcpy(cwd, _cwd);
 
-
-    WINDOW * wnd;
-    WINDOW * subwnd;
+    WINDOW* wnd;
+    WINDOW* subwnd;
     initscr();
     signal(SIGWINCH, sig_winch);
     cbreak();
     keypad(stdscr, TRUE);
-    curs_set(0);
+    curs_set(FALSE);
+    start_color();
     refresh();
-
-    const int wnd_h = 50;
-    const int wnd_w = 120;
+    init_pair(10, COLOR_BLACK, COLOR_CYAN);
+    init_pair(1, COLOR_BLACK, COLOR_YELLOW);
 
     wnd = newwin(wnd_h, wnd_w, 0, 0);
     box(wnd, '|', '-');
     wrefresh(wnd);
 
     subwnd = derwin(wnd, wnd_h-2, wnd_w-2, 1, 1);
-    //box(subwnd, '|', '-');
-    //wrefresh(wnd);
 
-    mvwprintw(subwnd, 1, 1, "Hello, brave new curses world!");
-    mvwprintw(subwnd, 2, 1, "Hello, brave new curses world2!");
-    wrefresh(subwnd);
+    struct dirent** namelist = NULL;
+    int count = setDirInfo(cwd, &namelist, subwnd);
 
     int ch;
-    while ((ch = getch()) != 'q') {
+    int line = 1;
+    while (ch != 'q') {
+
+        ch = getch();
         switch(ch) {
             case KEY_UP: // Page Up
-                mvwprintw(wnd, 4, 1, "Page Up");
-                wrefresh(wnd);
+                if ((line-1) > 0){
+                    line--;
+                    selectLine(line, namelist, subwnd);
+                    deSelectLine(line+1, namelist, subwnd);
+                }
                 break;
             case KEY_DOWN: // Page Down
-                mvwprintw(wnd, 5, 1, "Page Down");
-                wrefresh(wnd);
+                if ( ((line+1) <= count-1) ){
+                    line++;
+                    selectLine(line, namelist, subwnd);
+                    //if ((line-1) != 0)
+                        deSelectLine(line-1, namelist, subwnd);
+                }
                 break;
             case '\n': // Enter
-                mvwprintw(wnd, 6, 1, "Enter");
-                wrefresh(wnd);
+                if (namelist[line]->d_type == DT_DIR){
+                    if (line == 1){ // '../'
+                        int i = strlen(cwd);
+                        while (cwd[i] != '/') {
+                            cwd[i] = '\0';
+                            i--;
+                        }
+                        cwd[i] = '\0';
+                    }else{
+                        strcat(cwd, "/");
+                        strcat(cwd, namelist[line]->d_name);
+                    }
+
+                    for (int i = 0; i < count; i++)
+                        free(namelist[i]);
+                    free(namelist);
+                    namelist = NULL;
+                    line = 1;
+                    count = setDirInfo(cwd, &namelist, subwnd);
+                }   
                 break;
             default:
                 break;
         }
     }
 
-    //delwin(subwnd);
+    delwin(subwnd);
     delwin(wnd);
-
-    //getch();
     endwin();
-    exit(EXIT_SUCCESS);
 
+    for (int i = 0; i < count; i++)
+        free(namelist[i]);
+     free(namelist);
 
-    free(cwd);
     return 0;
 }
 
-
-
-
-
-// void showDir(char* pathname){
-//     struct dirent **namelist;
-//     int count = scandir((const char*)(pathname), &namelist, NULL, alphasort);
-//     if (count < 0) {
-//         perror("scandir error");
-//         exit(EXIT_FAILURE);
-//     }
-//     //printf("Total files: %d\n", count);
-
-//     for (int i = 0; i < count; i++) {
-//         if (namelist[i]->d_type == DT_DIR){
-//             printf("%s/\n", namelist[i]->d_name);
-//             if (i == 2){
-//                 strcat(cwd, "/");
-//                 strcat(cwd, namelist[i]->d_name);
-//                 printf("====== IN DIR: %s\n", cwd);
-//                 int cwd_len = strlen(cwd);
-//                 int name_len = strlen(namelist[i]->d_name);
-//                 cwd[cwd_len-1-name_len] = '\0';
-//             }
-//         }else{
-//             printf("%s\n", namelist[i]->d_name);
-//         }
-
-//         free(namelist[i]);
-//     }
-
-//     free(namelist);
-// }
-
-// int main(int argc, char ** argv){
-
-//     cwd = calloc(PATH_MAX, 1);
-//     char _cwd[PATH_MAX];
-//     char* _cwd_ptr = getcwd(_cwd, sizeof(_cwd));
-//     if (_cwd_ptr != NULL) {
-//         //printf("getcwd directory: %s\n", _cwd);
-//     } else {
-//         perror("getcwd() error");
-//         exit(EXIT_FAILURE);
-//     }
-//     strcpy(cwd, _cwd);
-//     printf("====== PRE DIR: %s\n", cwd);
-
-//     showDir(cwd);
-//     printf("====== AFTER DIR: %s\n", cwd);
-
-
-//     free(cwd);
-//     return 0;
-// }
-
-
-
-
-/*
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <curses.h>
-
-void sig_winch(int signo)
-{
-    struct winsize size;
-    ioctl(fileno(stdout), TIOCGWINSZ, (char *) &size);
-    resizeterm(size.ws_row, size.ws_col);
+void writeLine(int line, struct dirent** namelist, WINDOW* window){
+    wmove(window, line, 0);  // Переместить курсор в начало строки row
+    wclrtoeol(window);      // Очистить строку от текущей позиции курсора до конца строки
+    mvwprintw(window, line, 1, "%s", (const char*)(namelist[line]->d_name));
+    if (namelist[line]->d_type == DT_DIR){
+         wprintw(window, "/");
+    }
 }
 
-int main(int argc, char ** argv)
-{
+void selectLine(int line, struct dirent** namelist, WINDOW* window){
+    wattron(window, COLOR_PAIR(1));
+    writeLine(line, namelist, window);
+    wattroff(window, COLOR_PAIR(1));
+    wrefresh(window);
+}
 
-    WINDOW * wnd;
-    WINDOW * subwnd;
-    initscr();
-    signal(SIGWINCH, sig_winch);
-    cbreak();
-    keypad(stdscr, TRUE);
-    curs_set(0);
-    refresh();
+void deSelectLine(int line, struct dirent** namelist, WINDOW* window){
+    wattroff(window, COLOR_PAIR(1));
+    writeLine(line, namelist, window);
+    wrefresh(window);
+}
 
-    wnd = newwin(20, 40, 0, 0);
-    box(wnd, '|', '-');
-    wrefresh(wnd);
 
-    // subwnd = derwin(wnd, 10, 35, 1, 1);
-    // box(subwnd, '|', '-');
-    // wrefresh(wnd);
+int setDirInfo(char* pathname, struct dirent*** namelist, WINDOW* window){
+    int count = scandir((const char*)(pathname), namelist, NULL, alphasort);
+    if (count < 0) {
+        perror("scandir error");
+        exit(EXIT_FAILURE);
+    }
+    //printf("path: %s\n", pathname);
+    wattron(window, COLOR_PAIR(10));
+    wmove(window, 0, 0);
+    wclrtoeol(window);
+    mvwprintw(window, 0, 1, "%s", (const char*)pathname);
+    wprintw(window, "/");
+    wattroff(window, COLOR_PAIR(10));
+    wrefresh(window);   
 
-    // mvwprintw(subwnd, 1, 1, "Hello, brave new curses world!");
-    // mvwprintw(subwnd, 2, 1, "Hello, brave new curses world2!");
-    // wrefresh(subwnd);
-
-    int ch;
-    while ((ch = getch()) != 'q') {
-        switch(ch) {
-            case KEY_UP: // Page Up
-                mvwprintw(wnd, 4, 1, "Page Up");
-                wrefresh(wnd);
-                break;
-            case KEY_DOWN: // Page Down
-                mvwprintw(wnd, 5, 1, "Page Down");
-                wrefresh(wnd);
-                break;
-            case '\n': // Enter
-                mvwprintw(wnd, 6, 1, "Enter");
-                wrefresh(wnd);
-                break;
-            default:
-                break;
-        }
+    selectLine(1, *namelist, window);
+    for (int i = 2; i < count; i++) {
+        writeLine(i, *namelist, window);
+        wrefresh(window);
     }
 
-    //delwin(subwnd);
-    delwin(wnd);
+    for (int i = count; i < wnd_h; i++){
+        wmove(window, i, 0);  // Переместить курсор в начало строки row
+        wclrtoeol(window);      // Очистить строку от текущей позиции курсора до конца строки
+    }
+     wrefresh(window);
 
-    //getch();
-    endwin();
-    exit(EXIT_SUCCESS);
-
-
-
-    // WINDOW * wnd;
-    // WINDOW * subwnd;
-    // initscr();
-    // signal(SIGWINCH, sig_winch);
-    // cbreak();
-    // curs_set(0);
-    // refresh();
-    // wnd = newwin(6, 18, 2, 4);
-    // box(wnd, '|', '-');
-    // subwnd = derwin(wnd, 4, 16, 1, 1);
-    // wprintw(subwnd, "Hello, brave new curses world!\n");
-    // wrefresh(wnd);
-    // delwin(subwnd);
-    // delwin(wnd);
-    // move(9, 0);
-    // printw("Press any key to continue...");
-    // refresh();
-    // getch();
-    // endwin();
-    // exit(EXIT_SUCCESS);
+    return count;
 }
-*/
