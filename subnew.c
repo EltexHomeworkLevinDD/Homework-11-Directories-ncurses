@@ -33,6 +33,21 @@ void deSelectLine(int line, struct dirent** namelist, WINDOW* window){
     wrefresh(window);
 }
 
+void setPathInfo(char* pathname, WINDOW* window, int color_pair){
+    // Включаю атрибут цветовой пары для полного пути
+    wattron(window, COLOR_PAIR(color_pair));
+    // Перемещаюсь в начало строки 0
+    wmove(window, 0, 0);
+    // Очищаю строку от текущей позиции до конца строки
+    wclrtoeol(window);
+    // Пишу строку (имя полного пути и добавляю '/' в конце)
+    mvwprintw(window, 0, 0, "%s", (const char*)pathname);
+    wprintw(window, "/");
+    // Отключаю атрибут цветовой пары
+    wattroff(window, COLOR_PAIR(color_pair));
+    // Обновляю подокно
+    wrefresh(window);   
+}
 
 int setDirInfo(char* pathname, struct dirent*** namelist, WINDOW* window){
     // Сканирую директорию в **namelist и получаю количество файлов
@@ -41,19 +56,6 @@ int setDirInfo(char* pathname, struct dirent*** namelist, WINDOW* window){
         perror("scandir error");
         exit(EXIT_FAILURE);
     }
-    // Включаю атрибут цветовой пары 10 для полного пути
-    wattron(window, COLOR_PAIR(10));
-    // Перемещаюсь в начало строки 0
-    wmove(window, 0, 0);
-    // Очищаю строку от текущей позиции до конца строки
-    wclrtoeol(window);
-    // Пишу строку (имя полного пути и добавляю '/' в конце)
-    mvwprintw(window, 0, 1, "%s", (const char*)pathname);
-    wprintw(window, "/");
-    // Отключаю атрибут цветовой пары 10
-    wattroff(window, COLOR_PAIR(10));
-    // Обновляю подокно
-    wrefresh(window);   
 
     // Пишу и выделяю строку 1 (..) + '/'
     selectLine(1, *namelist, window);

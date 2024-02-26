@@ -15,6 +15,7 @@
 #include <curses.h>
 #include <linux/limits.h>
 
+
 struct Panel{
     int entry_count;
     int active_line;
@@ -30,5 +31,6 @@ void writeLine(int line, struct dirent** namelist, WINDOW* window);
 void selectLine(int line, struct dirent** namelist, WINDOW* window);
 void deSelectLine(int line, struct dirent** namelist, WINDOW* window);
 int setDirInfo(char* pathname, struct dirent*** namelist, WINDOW* window);
+void setPathInfo(char* pathname, WINDOW* window, int color_pair);
 
 #endif
