@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <curses.h>
 
-#include "subnew.h"
+#include "submain.h"
 
 // Обработчик сигнала SIGWINCH
 void sig_winch(int signo)

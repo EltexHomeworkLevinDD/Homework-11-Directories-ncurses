@@ -1,4 +1,4 @@
-#include "subnew.h"
+#include "submain.h"
 
 extern const int wnd_h;
 extern const int cwd_wnd_h;
