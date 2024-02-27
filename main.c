@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <curses.h>
 
+#include "subnew.h"
+
 // Обработчик сигнала SIGWINCH
 void sig_winch(int signo)
 {
@@ -18,216 +20,183 @@ void sig_winch(int signo)
     ioctl(fileno(stdout), TIOCGWINSZ, (char *) &size);
     resizeterm(size.ws_row, size.ws_col);
 }
+const int num_panels = 2;
 
-// Записать строку (после нужно сделать refresh)
-void writeLine(int line, struct dirent** namelist, WINDOW* window);
-// Выделить строку желтым
-void selectLine(int line, struct dirent** namelist, WINDOW* window);
-// Удалить выделение желтым
-void deSelectLine(int line, struct dirent** namelist, WINDOW* window);
-// Скан директории и вывод данных на экран
-int setDirInfo(char* pathname, struct dirent*** namelist, WINDOW* window);
-
-// Высота главного окна в символах
-const int wnd_h = 40;
-// Ширина главного окна в символах
+const int cwd_wnd_h = 2;
+const int wnd_h = 30;
 const int wnd_w = 120;
 
-int main(int argc, char ** argv){
+const int panel_wnd_h = wnd_h-2;
+const int panel_wnd_w = (int)(1.0 * (wnd_w-2) / num_panels + 1);
 
-    // Строка с полным путем
+int main(){
+
+    struct Panel panels[num_panels];
+    for (int i = 0; i < num_panels; i++){
+        memset((void*)&panels[i].fullpath, 0, sizeof(panels[i].fullpath));
+        panels[i].frame_cwd_wnd = NULL;
+        panels[i].text_cwd_wnd = NULL;
+        panels[i].frame_wnd = NULL;
+        panels[i].text_wnd = NULL;
+        panels[i].namelist = NULL;
+        panels[i].entry_count = 0;
+        panels[i].active_line = 0;
+    }
+    WINDOW* wnd = NULL;
+
+    initscr();
+    signal(SIGWINCH, sig_winch);
+    cbreak();
+    keypad(stdscr, TRUE);
+    noecho();
+    curs_set(FALSE);
+    start_color();
+    refresh();
+    init_pair(10, COLOR_BLACK, COLOR_CYAN);
+    init_pair(1, COLOR_BLACK, COLOR_YELLOW);
+
+    wnd = newwin(wnd_h, wnd_w, 0, 0);
+    box(wnd, '|', '-');
+    wrefresh(wnd);
+
     char cwd[PATH_MAX];
-    // Получаю строку с полным путем и указатель на нее
     char* cwd_ptr = getcwd(cwd, sizeof(cwd));
     if (cwd_ptr == NULL) {
         perror("getcwd() error");
         exit(EXIT_FAILURE);
     }
 
-    // Указатель на окно с рамкой
-    WINDOW* wnd;
-    // Указатель на окно внутри рамки (чтобы не затереть рамку)
-    WINDOW* subwnd;
-    // Запуск бпблиотеки
-    initscr();
-    // Передаю обработчик сигнала SIGWINCH
-    signal(SIGWINCH, sig_winch);
-    // Не буферизированный ввод (чтобы не вводить Enter после символа)
-    cbreak();
-    // Отслеживание нажатий
-    keypad(stdscr, TRUE);
-    // Курсор не видно
-    curs_set(FALSE);
-    // Включаю цвета
-    start_color();
-    refresh();
-    // Создаю цветовые пары
-    // Для полного пути
-    init_pair(10, COLOR_BLACK, COLOR_CYAN);
-    // Для директорий и файлов
-    init_pair(1, COLOR_BLACK, COLOR_YELLOW);
+    for (int i = 0; i < num_panels; i++){
+        int cwd_rw_h = cwd_wnd_h+2;
+        int cwd_rw_w = panel_wnd_w;
+        int cwd_ry = 0;
+        int cwd_rx = i*panel_wnd_w;
+        panels[i].frame_cwd_wnd = derwin(wnd, cwd_rw_h, cwd_rw_w, cwd_ry, cwd_rx);
+        box(panels[i].frame_cwd_wnd, '|', '-');
+        wrefresh(panels[i].frame_cwd_wnd);
 
-    // Создаю главное окно
-    wnd = newwin(wnd_h, wnd_w, 0, 0);
-    // Создаю в нем рамку
-    box(wnd, '|', '-');
-    // Обновляю окно
-    wrefresh(wnd);
+            panels[i].text_cwd_wnd = derwin(panels[i].frame_cwd_wnd, cwd_wnd_h, panel_wnd_w-2, 1, 1);
+            //mvwprintw(panels[i].text_cwd_wnd, 0, 0, "%s", "fffffffffdddddddddaaaaaa88888888888888888888888888aaaaaggggggg");
+            wrefresh(panels[i].text_cwd_wnd);
 
-    // Создаю подокно для текста, чтобы он не затирал рамку главного окна
-    subwnd = derwin(wnd, wnd_h-2, wnd_w-2, 1, 1);
+        int txt_rw_h = panel_wnd_h-cwd_wnd_h+1;
+        int txt_rw_w = panel_wnd_w;
+        int txt_ry = cwd_wnd_h+1;
+        int txt_rx = i*panel_wnd_w;
+        panels[i].frame_wnd = derwin(wnd, txt_rw_h, txt_rw_w, txt_ry, txt_rx);
+        box(panels[i].frame_wnd, '|', '-');
+        wrefresh(panels[i].frame_wnd);
 
-    // Указатель на массив структур с информацией о записях в директории
-    struct dirent** namelist = NULL;
-    // Сканирую и вывожу на экран
-    int count = setDirInfo(cwd, &namelist, subwnd);
+            panels[i].text_wnd = derwin(panels[i].frame_wnd, txt_rw_h-2, txt_rw_w-2, 1, 1);
+            //mvwprintw(panels[i].text_wnd, 0, 0, "%s", "fdfdf54666rt7777777744444444444444444444222267567567666dfd");
+            wrefresh(panels[i].text_wnd);
 
-    // Считываю нажатия клавиш
+        if (strncpy(panels[i].fullpath, cwd, sizeof(cwd)) == NULL){
+            perror("Error cpy fullpath");
+            exit(-1);
+        }
+        panels[i].entry_count = setDirInfo(panels[i].fullpath, &panels[i].namelist, panels[i].text_wnd);
+        if (i == 0)
+            setPathInfo(panels[i].fullpath, panels[i].text_cwd_wnd, 10, 1);
+        else
+            setPathInfo(panels[i].fullpath, panels[i].text_cwd_wnd, 0, 1);
+        wrefresh(panels[i].text_wnd);
+    }
+    
     int ch;
-    int line = 1;
+    int ap_id = 0; // active panel id
     while (ch != 'q') {
 
-        ch = getch();
+         ch = getch();
         switch(ch) {
             case KEY_UP: // Page Up
                 // Если строка не 0 (не полный путь), перейти на предыдущую
-                if ((line-1) > 0){
-                    line--;
+                if ((panels[ap_id].active_line) > 0){
+                    panels[ap_id].active_line--;
                     // Выделяю строку
-                    selectLine(line, namelist, subwnd);
+                    selectLine(panels[ap_id].active_line, panels[ap_id].namelist, panels[ap_id].text_wnd);
                     // Снимаю выделение с предыдущей строки
-                    deSelectLine(line+1, namelist, subwnd);
+                    deSelectLine(panels[ap_id].active_line+1, panels[ap_id].namelist, panels[ap_id].text_wnd);
                 }
                 break;
             case KEY_DOWN: // Page Down
                 // Если строка не последняя, перейти на следующую
-                if ( ((line+1) <= count-1) ){
-                    line++;
+                if ( ((panels[ap_id].active_line) < panels[ap_id].entry_count-2) ){
+                    panels[ap_id].active_line++;    
                     // Выделяю строку
-                    selectLine(line, namelist, subwnd);
+                    //writeLine(panels[ap_id].active_line, panels[ap_id].namelist, panels[ap_id].text_wnd);
+                    //wrefresh(panels[ap_id].text_wnd);
+                    selectLine(panels[ap_id].active_line, panels[ap_id].namelist, panels[ap_id].text_wnd);
                     // Снимаю выделение с предыдущей строки
-                    deSelectLine(line-1, namelist, subwnd);
+                    deSelectLine(panels[ap_id].active_line-1, panels[ap_id].namelist, panels[ap_id].text_wnd);
                 }
                 break;
             case '\n': // Enter
                 // Если строка это директория 
-                if (namelist[line]->d_type == DT_DIR){
+                if (panels[ap_id].namelist[panels[ap_id].active_line+1]->d_type == DT_DIR){
                     // Если строка первая ('../')
-                    if (line == 1){ // '../'
-                        int i = strlen(cwd);
+                    if (panels[ap_id].active_line == 0){ // '../'
+
+                        int i = strlen(panels[ap_id].fullpath);
                         // Затираю символы до ближайшего '/'
-                        while (cwd[i] != '/') {
-                            cwd[i] = '\0';
+                        panels[ap_id].fullpath[i] = '\0';
+                        i--;
+                        while (panels[ap_id].fullpath[i] != '/') {
+                            panels[ap_id].fullpath[i] = '\0';
                             i--;
                         }
-                        cwd[i] = '\0';
+                        // if next fullpath is not "/"
+                        if (strcmp((const char*)(panels[ap_id].fullpath), "/") != 0){
+                            panels[ap_id].fullpath[i] = '\0';
+                            setPathInfo(panels[ap_id].fullpath, panels[ap_id].text_cwd_wnd, 10, 1);
+                        }else{
+                            setPathInfo(panels[ap_id].fullpath, panels[ap_id].text_cwd_wnd, 10, 0);
+                        }
                     // Если строка не первая
                     }else{
                         // Добавляю к пути имя директории и '/'
-                        strcat(cwd, "/");
-                        strcat(cwd, namelist[line]->d_name);
+                        if (strcmp((const char*)(panels[ap_id].fullpath), "/") != 0)
+                            strcat(panels[ap_id].fullpath, "/");
+                        strcat(panels[ap_id].fullpath, panels[ap_id].namelist[panels[ap_id].active_line+1]->d_name);
+                        setPathInfo(panels[ap_id].fullpath, panels[ap_id].text_cwd_wnd, 10, 1);
                     }
 
                     // Удаляю старую информацию о директории
-                    for (int i = 0; i < count; i++)
-                        free(namelist[i]);
-                    free(namelist);
-                    namelist = NULL;
+                    for (int i = 0; i < panels[ap_id].entry_count; i++)
+                        free(panels[ap_id].namelist[i]);
+                    free(panels[ap_id].namelist);
+                    panels[ap_id].namelist = NULL;
 
                     // Добавляю информацию о текущей директории
-                    line = 1;
-                    count = setDirInfo(cwd, &namelist, subwnd);
-                }   
+                    panels[ap_id].entry_count = 0;
+                    panels[ap_id].active_line = 0;
+                    panels[ap_id].entry_count = setDirInfo(panels[ap_id].fullpath, &panels[ap_id].namelist, panels[ap_id].text_wnd);
+
+                }       
+                break;
+            case '\t':
+                int prev_ap_id = ap_id; 
+                ap_id++;
+                if (ap_id > (num_panels-1))
+                    ap_id = 0;
+                setPathInfo(panels[ap_id].fullpath, panels[ap_id].text_cwd_wnd, 10, 1);
+                setPathInfo(panels[prev_ap_id].fullpath, panels[prev_ap_id].text_cwd_wnd, 0, 1);
+                wrefresh(panels[ap_id].text_wnd);
                 break;
             default:
                 break;
         }
-    }
+        }
 
-    // Удаляю подокно
-    delwin(subwnd);
-    // Удаляю главное окно
+    for (int i = 0; i < num_panels; i++){
+        delwin(panels[i].frame_cwd_wnd);
+        delwin(panels[i].text_cwd_wnd);
+        delwin(panels[i].frame_wnd);
+        delwin(panels[i].text_wnd);
+    }
     delwin(wnd);
-    // Выключаю быблиотеку
     endwin();
 
-    // Удаляю информацию о текущей директории
-    for (int i = 0; i < count; i++)
-        free(namelist[i]);
-     free(namelist);
 
     return 0;
-}
-
-void writeLine(int line, struct dirent** namelist, WINDOW* window){
-    wmove(window, line, 0);  // Перемещаюсь в начало строки 0
-    wclrtoeol(window);      // Очищаю строку от текущей позиции до конца строки
-    // Записываю в строку line имя записи в директории
-    mvwprintw(window, line, 1, "%s", (const char*)(namelist[line]->d_name));
-    // Если строка-директория, прибавляю '/' к имени
-    if (namelist[line]->d_type == DT_DIR){
-         wprintw(window, "/");
-    }
-}
-
-void selectLine(int line, struct dirent** namelist, WINDOW* window){
-    // Включаю атрибут (цветовая пара 1)
-    wattron(window, COLOR_PAIR(1));
-    // Пишу строку
-    writeLine(line, namelist, window);
-    // Отключаю отрибут
-    wattroff(window, COLOR_PAIR(1));
-    // Обновляю подокно
-    wrefresh(window);
-}
-
-void deSelectLine(int line, struct dirent** namelist, WINDOW* window){
-    // Отключаю атрибут цветовой пары 1
-    wattroff(window, COLOR_PAIR(1));
-    // Пишу строку
-    writeLine(line, namelist, window);
-    // Обновляю подокно
-    wrefresh(window);
-}
-
-
-int setDirInfo(char* pathname, struct dirent*** namelist, WINDOW* window){
-    // Сканирую директорию в **namelist и получаю количество файлов
-    int count = scandir((const char*)(pathname), namelist, NULL, alphasort);
-    if (count < 0) {
-        perror("scandir error");
-        exit(EXIT_FAILURE);
-    }
-    // Включаю атрибут цветовой пары 10 для полного пути
-    wattron(window, COLOR_PAIR(10));
-    // Перемещаюсь в начало строки 0
-    wmove(window, 0, 0);
-    // Очищаю строку от текущей позиции до конца строки
-    wclrtoeol(window);
-    // Пишу строку (имя полного пути и добавляю '/' в конце)
-    mvwprintw(window, 0, 1, "%s", (const char*)pathname);
-    wprintw(window, "/");
-    // Отключаю атрибут цветовой пары 10
-    wattroff(window, COLOR_PAIR(10));
-    // Обновляю подокно
-    wrefresh(window);   
-
-    // Пишу и выделяю строку 1 (..) + '/'
-    selectLine(1, *namelist, window);
-    // Пишу остальные строки и обновляю подокно
-    // namelist[0] - директория текущая '.', я ее не включаю в список
-    for (int i = 2; i < count; i++) {
-        writeLine(i, *namelist, window);
-        wrefresh(window);
-    }
-
-    // Очищаю остальные строки до конца окна
-    for (int i = count; i < wnd_h; i++){
-        wmove(window, i, 0); // Перемещаюсь в начало строки 0
-        wclrtoeol(window);  // Очищаю строку от текущей позиции до конца строки
-    }
-    // Обновляю подокно
-    wrefresh(window);
-
-    return count;
 }
