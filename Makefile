@@ -1,7 +1,6 @@
 CC:=gcc
 
-main : main.c submain.o
-	gcc main.c submain.o -o main -lncurses
+main : main.c
 
 .PHONY : clean
 clean :
