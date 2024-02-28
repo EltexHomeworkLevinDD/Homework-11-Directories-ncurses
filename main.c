@@ -105,6 +105,7 @@ int main(){
     
     int ch;
     int ap_id = 0; // active panel id
+    int prev_ap_id = 0;
     while (ch != 'q') {
 
          ch = getch();
@@ -175,7 +176,7 @@ int main(){
                 }       
                 break;
             case '\t':
-                int prev_ap_id = ap_id; 
+                prev_ap_id = ap_id;
                 ap_id++;
                 if (ap_id > (num_panels-1))
                     ap_id = 0;
